@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/moby/buildkit/util/bklog"
+	"github.com/sirupsen/logrus"
 
 	controlapi "github.com/moby/buildkit/api/services/control"
 	apitypes "github.com/moby/buildkit/api/types"
@@ -236,6 +237,7 @@ func translateLegacySolveRequest(req *controlapi.SolveRequest) error {
 }
 
 func (c *Controller) Solve(ctx context.Context, req *controlapi.SolveRequest) (*controlapi.SolveResponse, error) {
+	logrus.Infof("controller: Solve() for job %s, session: %s", req.Ref, req.Session)
 	atomic.AddInt64(&c.buildCount, 1)
 	defer atomic.AddInt64(&c.buildCount, -1)
 
@@ -281,10 +283,12 @@ func (c *Controller) Solve(ctx context.Context, req *controlapi.SolveRequest) (*
 		if !ok {
 			return nil, errors.Errorf("unknown cache exporter: %q", e.Type)
 		}
+		logrus.Infof("calling cacheExporterFunc for job %s, session: %s", req.Ref, req.Session)
 		cacheExporter, err = cacheExporterFunc(ctx, session.NewGroup(req.Session), e.Attrs)
 		if err != nil {
 			return nil, err
 		}
+		logrus.Infof("cacheExporterFunc returned for job %s, session: %s", req.Ref, req.Session)
 		if exportMode, supported := parseCacheExportMode(e.Attrs["mode"]); !supported {
 			bklog.G(ctx).Debugf("skipping invalid cache export mode: %s", e.Attrs["mode"])
 		} else {
@@ -298,6 +302,7 @@ func (c *Controller) Solve(ctx context.Context, req *controlapi.SolveRequest) (*
 		})
 	}
 
+	logrus.Infof("controller: solve() for job %s, session: %s", req.Ref, req.Session)
 	resp, err := c.solver.Solve(ctx, req.Ref, req.Session, frontend.SolveRequest{
 		Frontend:       req.Frontend,
 		Definition:     req.Definition,
@@ -318,6 +323,7 @@ func (c *Controller) Solve(ctx context.Context, req *controlapi.SolveRequest) (*
 }
 
 func (c *Controller) Status(req *controlapi.StatusRequest, stream controlapi.Control_StatusServer) error {
+	logrus.Infof("controller: Status() for job %s", req.Ref)
 	ch := make(chan *client.SolveStatus, 8)
 
 	eg, ctx := errgroup.WithContext(stream.Context())

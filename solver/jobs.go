@@ -15,6 +15,7 @@ import (
 	"github.com/moby/buildkit/util/tracing"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -447,6 +448,7 @@ func (jl *Solver) NewJob(id string) (*Job, error) {
 		span:           span,
 		id:             id,
 	}
+	logrus.Infof("jobsolver: new job registered %s", id)
 	jl.jobs[id] = j
 
 	jl.updateCond.Broadcast()
@@ -455,7 +457,14 @@ func (jl *Solver) NewJob(id string) (*Job, error) {
 }
 
 func (jl *Solver) Get(id string) (*Job, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed.Milliseconds() > 1 {
+			logrus.Infof("jobsolver: get() for %s took more than a millisecond: %s", id, elapsed)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 
 	go func() {
@@ -470,6 +479,7 @@ func (jl *Solver) Get(id string) (*Job, error) {
 	for {
 		select {
 		case <-ctx.Done():
+			logrus.Errorf("jobsolver: no such job %s", id)
 			return nil, errors.Errorf("no such job %s", id)
 		default:
 		}

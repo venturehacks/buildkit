@@ -78,7 +78,6 @@ func (p *Pool) GetResolver(hosts docker.RegistryHosts, ref, scope string, sm *se
 	if err == nil {
 		name = named.Name()
 	}
-
 	key := fmt.Sprintf("%s::%s", name, scope)
 
 	p.mu.Lock()
@@ -128,9 +127,9 @@ func (r *Resolver) HostsFunc(host string) ([]docker.RegistryHost, error) {
 	return func(domain string) ([]docker.RegistryHost, error) {
 		v, err := r.handler.g.Do(context.TODO(), domain, func(ctx context.Context) (interface{}, error) {
 			// long lock not needed because flightcontrol.Do
-			r.handler.mu.Lock()
+			r.handler.hostsMu.Lock()
+			defer r.handler.hostsMu.Unlock()
 			v, ok := r.handler.hosts[domain]
-			r.handler.mu.Unlock()
 			if ok {
 				return v, nil
 			}
@@ -138,18 +137,20 @@ func (r *Resolver) HostsFunc(host string) ([]docker.RegistryHost, error) {
 			if err != nil {
 				return nil, err
 			}
-			r.handler.mu.Lock()
+
 			r.handler.hosts[domain] = res
-			r.handler.mu.Unlock()
 			return res, nil
 		})
 		if err != nil || v == nil {
 			return nil, err
 		}
-		res := v.([]docker.RegistryHost)
-		if len(res) == 0 {
+		vv := v.([]docker.RegistryHost)
+		if len(vv) == 0 {
 			return nil, nil
 		}
+		// make a copy so authorizer is set on unique instanceq
+		res := make([]docker.RegistryHost, len(vv))
+		copy(res, vv)
 		auth := newDockerAuthorizer(res[0].Client, r.handler, r.sm, r.g)
 		for i := range res {
 			res[i].Authorizer = auth

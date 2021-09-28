@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -132,16 +133,20 @@ func (sm *Manager) handleConn(ctx context.Context, conn net.Conn, opts map[strin
 		c.supported[strings.ToLower(m)] = struct{}{}
 	}
 	sm.sessions[id] = c
+	logrus.Infof("session %s was created", id)
 	sm.updateCondition.Broadcast()
 	sm.mu.Unlock()
 
 	defer func() {
 		sm.mu.Lock()
 		delete(sm.sessions, id)
+		logrus.Infof("session %s was deleted", id)
 		sm.mu.Unlock()
 	}()
 
+	logrus.Infof("waiting for session %s's client context to finish", id)
 	<-c.ctx.Done()
+	logrus.Infof("client context for session %s is done: %v", id, ctx.Err())
 	conn.Close()
 	close(c.done)
 
@@ -181,6 +186,11 @@ func (sm *Manager) Get(ctx context.Context, id string, noWait bool) (Caller, err
 		var ok bool
 		c, ok = sm.sessions[id]
 		if (!ok || c.closed()) && !noWait {
+			if !ok {
+				logrus.Infof("no active session yet for %s, or already deleted - waiting", id)
+			} else if c.closed() {
+				logrus.Infof("session closed for %s - waiting", id)
+			}
 			sm.updateCondition.Wait()
 			continue
 		}

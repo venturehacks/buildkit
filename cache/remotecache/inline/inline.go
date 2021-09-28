@@ -28,6 +28,10 @@ type exporter struct {
 	chains *v1.CacheChains
 }
 
+func (ce *exporter) Ref() string {
+	return "inline"
+}
+
 func (ce *exporter) Finalize(ctx context.Context) (map[string]string, error) {
 	return nil, nil
 }

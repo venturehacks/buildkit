@@ -22,6 +22,7 @@ import (
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -90,12 +91,16 @@ func (s *Solver) Bridge(b solver.Builder) frontend.FrontendLLBBridge {
 }
 
 func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req frontend.SolveRequest, exp ExporterRequest, ent []entitlements.Entitlement) (*client.SolveResponse, error) {
+	logrus.Infof("llbsolver: new job %s, session: %s", id, sessionID)
 	j, err := s.solver.NewJob(id)
 	if err != nil {
 		return nil, err
 	}
 
-	defer j.Discard()
+	defer func() {
+		logrus.Infof("llbsolver: job %s discarded, session: %s", id, j.SessionID)
+		j.Discard()
+	}()
 
 	set, err := entitlements.WhiteList(ent, supportedEntitlements(s.entitlements))
 	if err != nil {
@@ -112,7 +117,11 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 		if err := s.gatewayForwarder.RegisterBuild(ctx, id, fwd); err != nil {
 			return nil, err
 		}
-		defer s.gatewayForwarder.UnregisterBuild(ctx, id)
+		logrus.Infof("llbsolver: gwf registered job %s, session: %s", id, j.SessionID)
+		defer func() {
+			logrus.Infof("llbsolver: gwf unregistering job %s, session: %s", id, j.SessionID)
+			s.gatewayForwarder.UnregisterBuild(ctx, id)
+		}()
 
 		var err error
 		select {
@@ -125,6 +134,7 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 			return nil, err
 		}
 	} else {
+		logrus.Infof("llbsolver: Bridge(j).Solve job %s, session %s", id, j.SessionID)
 		res, err = s.Bridge(j).Solve(ctx, req, sessionID)
 		if err != nil {
 			return nil, err
@@ -209,8 +219,10 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 			inp.Refs = m
 		}
 
-		if err := inBuilderContext(ctx, j, e.Name(), "", func(ctx context.Context, _ session.Group) error {
+		if err := inBuilderContext(ctx, j, e.Name(), "", func(ctx context.Context, g session.Group) error {
+			logrus.Infof("exporting in builder context for session %s, job %s, group: %s", j.SessionID, id, session.AllSessionIDs(g))
 			exporterResponse, err = e.Export(ctx, inp, j.SessionID)
+			logrus.Infof("export done in builder context for session %s, job %s, group: %s", j.SessionID, id, session.AllSessionIDs(g))
 			return err
 		}); err != nil {
 			return nil, err
@@ -219,8 +231,10 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 
 	g := session.NewGroup(j.SessionID)
 	var cacheExporterResponse map[string]string
+	exportFinalizationFailure := false
 	if e := exp.CacheExporter; e != nil {
-		if err := inBuilderContext(ctx, j, "exporting cache", "", func(ctx context.Context, _ session.Group) error {
+		if err := inBuilderContext(ctx, j, "exporting cache", "", func(ctx context.Context, g2 session.Group) error {
+			logrus.Infof("preparing build cache for export and session %s, job %s, group: %s, group: %s", j.SessionID, id, session.AllSessionIDs(g2), session.AllSessionIDs(g))
 			prepareDone := oneOffProgress(ctx, "preparing build cache for export")
 			if err := res.EachRef(func(res solver.ResultProxy) error {
 				r, err := res.Result(ctx)
@@ -238,10 +252,26 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 				return prepareDone(err)
 			}
 			prepareDone(nil)
+			ref := "unknown"
+			if er, ok := e.(remotecache.ExporterRef); ok {
+				ref = er.Ref()
+			}
+			logrus.Infof("contentCacheExporter: Finalize() session %s, job %s, group: %s, ref: %s", j.SessionID, id, session.AllSessionIDs(g), ref)
 			cacheExporterResponse, err = e.Finalize(ctx)
+			if err != nil {
+				exportFinalizationFailure = true
+				logrus.Infof("contentCacheExporter: Finalized() session %s, job %s, group: %s, ref: %s, error: %v", j.SessionID, id, session.AllSessionIDs(g), ref, err)
+			} else {
+				logrus.Infof("contentCacheExporter: Finalized() session %s, job %s, group: %s, ref: %s", j.SessionID, id, session.AllSessionIDs(g), ref)
+			}
 			return err
 		}); err != nil {
-			return nil, err
+			if exportFinalizationFailure {
+				logrus.Warningf("AL PATCH: export finalization failed - continuing anyway for session %s, job %s, group: %s: %v", j.SessionID, id, session.AllSessionIDs(g), err)
+				inBuilderContext(ctx, j, fmt.Sprintf("** AL PATCH: export finalization failed - continuing anyway: %v", err), "", func(_ context.Context, _ session.Group) error { return nil })
+			} else {
+				return nil, err
+			}
 		}
 	}
 
@@ -298,6 +328,7 @@ func inlineCache(ctx context.Context, e remotecache.Exporter, res solver.CachedR
 }
 
 func (s *Solver) Status(ctx context.Context, id string, statusChan chan *client.SolveStatus) error {
+	logrus.Infof("llbsolver: status() get job: %s", id)
 	j, err := s.solver.Get(id)
 	if err != nil {
 		close(statusChan)

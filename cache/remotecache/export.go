@@ -20,6 +20,7 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type ResolveCacheExporterFunc func(ctx context.Context, g session.Group, attrs map[string]string) (Exporter, error)
@@ -38,6 +39,10 @@ func oneOffProgress(ctx context.Context, id string) func(err error) error {
 		pw.Close()
 		return err
 	}
+}
+
+type ExporterRef interface {
+	Ref() string
 }
 
 type Exporter interface {
@@ -66,9 +71,14 @@ func NewExporter(ingester content.Ingester, ref string, oci bool) Exporter {
 	return &contentCacheExporter{CacheExporterTarget: cc, chains: cc, ingester: ingester, oci: oci, ref: ref}
 }
 
+func (ce *contentCacheExporter) Ref() string {
+	return fmt.Sprintf("remotecache:%s", ce.ref)
+}
+
 func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string, error) {
 	res := make(map[string]string)
 	config, descs, err := ce.chains.Marshal()
+	logrus.Infof("contentCacheExporter.Finalize() after Marshal: %s", ce.ref)
 	if err != nil {
 		return nil, err
 	}

@@ -102,6 +102,10 @@ func (ce *exporter) indexKey() string {
 	return "index-" + ce.config.Scope + "-" + version + "-" + scope
 }
 
+func (ce *exporter) Ref() string {
+	return fmt.Sprintf("gha:%s", ce.indexKey())
+}
+
 func (ce *exporter) Finalize(ctx context.Context) (map[string]string, error) {
 	// res := make(map[string]string)
 	config, descs, err := ce.chains.Marshal()
