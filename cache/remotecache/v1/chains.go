@@ -9,7 +9,10 @@ import (
 	"github.com/moby/buildkit/solver"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
+
+var uglyGlobalMutex obsMutex
 
 func NewCacheChains() *CacheChains {
 	return &CacheChains{visited: map[interface{}]struct{}{}}
@@ -39,6 +42,8 @@ func (c *CacheChains) Visited(v interface{}) bool {
 }
 
 func (c *CacheChains) normalize() error {
+	ref := time.Now().UnixNano()
+
 	st := &normalizeState{
 		added: map[*item]*item{},
 		links: map[*item]map[nlink]map[digest.Digest]struct{}{},
@@ -58,8 +63,16 @@ func (c *CacheChains) normalize() error {
 	}
 	c.items = validated
 
+	// Trouble!
+	logrus.Infof("[global-normalize][%d] before", ref)
+	uglyGlobalMutex.Lock(ref, "global")
+	defer func() {
+		uglyGlobalMutex.Unlock(ref, "global")
+		logrus.Infof("[global-normalize][%d] after", ref)
+	}()
+
 	for _, it := range c.items {
-		_, err := normalizeItem(it, st)
+		_, err := normalizeItem(it, st, ref)
 		if err != nil {
 			return err
 		}
@@ -108,6 +121,29 @@ type DescriptorProviderPair struct {
 	Provider   content.Provider
 }
 
+type obsMutex struct {
+	mu    sync.Mutex
+	count int
+}
+
+func (m *obsMutex) Lock(ref int64, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.count = m.count + 1
+	if m.count > 1 {
+		logrus.Errorf("AL PATCH: More than one Go routine in critical section (%d) for [%d] %s", m.count, ref, id)
+	}
+}
+
+func (m *obsMutex) Unlock(ref int64, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.count = m.count - 1
+	if m.count > 1 {
+		logrus.Errorf("AL PATCH: one Go routine less in critical section (%d) for [%d] %s", m.count, ref, id)
+	}
+}
+
 type item struct {
 	c    *CacheChains
 	dgst digest.Digest
@@ -116,6 +152,7 @@ type item struct {
 	resultTime time.Time
 
 	links       []map[link]struct{}
+	linksMu     obsMutex
 	backlinksMu sync.Mutex
 	backlinks   map[*item]struct{}
 	invalid     bool

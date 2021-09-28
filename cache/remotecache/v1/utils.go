@@ -178,11 +178,17 @@ func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]s
 	}
 }
 
-func normalizeItem(it *item, state *normalizeState) (*item, error) {
+func normalizeItem(it *item, state *normalizeState, ref int64) (*item, error) {
+	// max: Check if we already normalized this item and added to the state
 	if it2, ok := state.added[it]; ok {
+		logrus.Infof("[normalize][%d][%s] in-out - state exists", ref, it.dgst.String())
 		return it2, nil
 	}
 
+	it.linksMu.Lock(ref, it.dgst.String())
+	defer it.linksMu.Unlock(ref, it.dgst.String())
+
+	// max: if there are no links, it's easy - add the item to the state and return
 	if len(it.links) == 0 {
 		id := it.dgst
 		if it2, ok := state.byKey[id]; ok {
@@ -191,8 +197,11 @@ func normalizeItem(it *item, state *normalizeState) (*item, error) {
 		}
 		state.byKey[id] = it
 		state.added[it] = it
+		logrus.Infof("[normalize][%d][%s] in-out - no links", ref, it.dgst.String())
 		return nil, nil
 	}
+
+	logrus.Infof("[normalize][%d][%s] in - normalizing", ref, it.dgst.String())
 
 	matches := map[digest.Digest]struct{}{}
 
@@ -202,17 +211,23 @@ func normalizeItem(it *item, state *normalizeState) (*item, error) {
 			return nil, errors.Errorf("invalid incomplete links")
 		}
 		for l := range m {
+			logrus.Infof("[normalize][%d][%s] match search l.src.dgst: '%s', l.selector: '%s'", ref, it.dgst.String(), l.src.dgst, l.selector)
 			nl := nlink{dgst: it.dgst, input: i, selector: l.selector}
-			it2, err := normalizeItem(l.src, state)
+			// max: normalize the source of the link
+			it2, err := normalizeItem(l.src, state, ref)
 			if err != nil {
 				return nil, err
 			}
+			// max: retrieve the state for the link to the source
 			links := state.links[it2][nl]
 			if i == 0 {
+				// max: if it's the first link, initialize matches
 				for id := range links {
 					matches[id] = struct{}{}
 				}
 			} else {
+				// max: else, if we have no state for the link to the source
+				// then remove it frmo the matches
 				for id := range matches {
 					if _, ok := links[id]; !ok {
 						delete(matches, id)
@@ -226,21 +241,26 @@ func normalizeItem(it *item, state *normalizeState) (*item, error) {
 
 	links := it.links
 
+	// max: if there are matches still, work needs to be done
 	if len(matches) > 0 {
 		for m := range matches {
 			if id == "" || id > m {
 				id = m
 			}
 		}
+		logrus.Infof("[normalize][%d][%s] there are still %d matches id: '%s'", ref, it.dgst.String(), len(matches), id)
 	} else {
 		// keep tmp IDs deterministic
 		state.next++
 		id = digest.FromBytes([]byte(fmt.Sprintf("%d", state.next)))
 		state.byKey[id] = it
+
+		// max: if there are no matches anymore, reset the item's links map
 		it.links = make([]map[link]struct{}, len(it.links))
 		for i := range it.links {
 			it.links[i] = map[link]struct{}{}
 		}
+		logrus.Infof("[normalize][%d][%s] there are no matches anymore id: '%s'", ref, it.dgst.String(), id)
 	}
 
 	it2 := state.byKey[id]
@@ -248,7 +268,9 @@ func normalizeItem(it *item, state *normalizeState) (*item, error) {
 
 	for i, m := range links {
 		for l := range m {
-			subIt, err := normalizeItem(l.src, state)
+			// max: try to normalize again with an updated state ????
+			logrus.Infof("[normalize][%d][%s] second normalization l.src.dgst: '%s', l.selector: '%s'", ref, it.dgst.String(), l.src.dgst, l.selector)
+			subIt, err := normalizeItem(l.src, state, ref)
 			if err != nil {
 				return nil, err
 			}
@@ -264,7 +286,7 @@ func normalizeItem(it *item, state *normalizeState) (*item, error) {
 			state.links[subIt][nl][id] = struct{}{}
 		}
 	}
-
+	logrus.Infof("[normalize][%d][%s] out - normalized item", ref, it.dgst.String())
 	return it2, nil
 }
 
