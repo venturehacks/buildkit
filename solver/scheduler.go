@@ -2,6 +2,7 @@ package solver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/moby/buildkit/util/bklog"
 	"github.com/moby/buildkit/util/cond"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 var debugScheduler = false // TODO: replace with logs in build trace
@@ -351,7 +353,11 @@ type pipeFactory struct {
 func (pf *pipeFactory) NewInputRequest(ee Edge, req *edgeRequest) pipe.Receiver {
 	target := pf.s.ef.getEdge(ee)
 	if target == nil {
-		panic("failed to get edge") // TODO: return errored pipe
+		// panic("failed to get edge") // TODO: return errored pipe
+		// AL PATCH: return an error pipe and hope the rest of the implementation handles
+		// that at least as good as a total crash
+		logrus.Errorf("AL PATCH: try to recover from 'failed to get edge' panic")
+		return pipe.NewErroredPipe(req, fmt.Errorf("panic failed to get edge"))
 	}
 	p := pf.s.newPipe(target, pf.e, pipe.Request{Payload: req})
 	if debugScheduler {
