@@ -217,7 +217,14 @@ func main() {
 			return err
 		}
 
-		logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
+		//logrus.SetFormatter(&logrus.TextFormatter{TimestampFormat: "2006-01-02T15:04:05.000Z07:00", FullTimestamp: true})
+		logrus.SetFormatter(&logrus.JSONFormatter{
+			TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
+			FieldMap: logrus.FieldMap{
+				logrus.FieldKeyTime: "timestamp",
+				logrus.FieldKeyMsg:  "message",
+			},
+		})
 		if cfg.Debug {
 			logrus.SetLevel(logrus.DebugLevel)
 		}
@@ -352,7 +359,7 @@ func serveGRPC(cfg config.GRPCConfig, server *grpc.Server, errCh chan error) err
 		func(l net.Listener) {
 			eg.Go(func() error {
 				defer l.Close()
-				logrus.Infof("running server on %s", l.Addr())
+				logrus.Infof("AL PATCH: running patched server 202109281813 on %s", l.Addr())
 				return server.Serve(l)
 			})
 		}(l)
