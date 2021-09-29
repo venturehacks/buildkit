@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 type channel struct {
@@ -197,37 +196,4 @@ func (pr *receiver) Cancel() {
 
 func (pr *receiver) Status() Status {
 	return pr.status
-}
-
-type erroredPipe struct {
-	req interface{}
-	err error
-}
-
-func (p *erroredPipe) Receive() bool {
-	return true
-}
-
-func (p *erroredPipe) Cancel() {
-	logrus.Errorf("unable to cancel errored pipe")
-}
-
-func (p *erroredPipe) Status() Status {
-	return Status{
-		Canceled:  false,
-		Completed: true,
-		Err:       p.err,
-		Value:     nil,
-	}
-
-}
-func (p *erroredPipe) Request() interface{} {
-	return p.req
-}
-
-func NewErroredPipe(req interface{}, err error) Receiver {
-	return &erroredPipe{
-		req: req,
-		err: err,
-	}
 }

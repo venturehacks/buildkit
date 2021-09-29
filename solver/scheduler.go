@@ -2,7 +2,6 @@ package solver
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync"
 
@@ -357,7 +356,9 @@ func (pf *pipeFactory) NewInputRequest(ee Edge, req *edgeRequest) pipe.Receiver 
 		// AL PATCH: return an error pipe and hope the rest of the implementation handles
 		// that at least as good as a total crash
 		logrus.Errorf("AL PATCH: try to recover from 'failed to get edge' panic")
-		return pipe.NewErroredPipe(req, fmt.Errorf("panic failed to get edge"))
+		return pf.NewFuncRequest(func(_ context.Context) (interface{}, error) {
+			return req, errors.Errorf("failed to get edge")
+		})
 	}
 	p := pf.s.newPipe(target, pf.e, pipe.Request{Payload: req})
 	if debugScheduler {
