@@ -174,7 +174,7 @@ postUnpark:
 				if e.isDep(origEdge) || origEdge.isDep(e) {
 					bklog.G(context.TODO()).Debugf("skip merge due to dependency")
 				} else {
-					bklog.G(context.TODO()).Debugf("merging edge %s to %s\n", e.edge.Vertex.Name(), origEdge.edge.Vertex.Name())
+					logrus.Infof("merging edge %s to %s\n", e.edge.Vertex.Name(), origEdge.edge.Vertex.Name())
 					if s.mergeTo(origEdge, e) {
 						s.ef.setEdge(e.edge, origEdge)
 					}
