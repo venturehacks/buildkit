@@ -1,6 +1,7 @@
 package cacheimport
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -65,9 +66,9 @@ func (c *CacheChains) normalize() error {
 
 	// Trouble!
 	logrus.Infof("[global-normalize][%d] before", ref)
-	uglyGlobalMutex.Lock(ref, "global")
+	uglyGlobalMutex.Lock(fmt.Sprintf("normalize-%d", ref))
 	defer func() {
-		uglyGlobalMutex.Unlock(ref, "global")
+		uglyGlobalMutex.Unlock(fmt.Sprintf("normalize-%d", ref))
 		logrus.Infof("[global-normalize][%d] after", ref)
 	}()
 
@@ -122,26 +123,38 @@ type DescriptorProviderPair struct {
 }
 
 type obsMutex struct {
-	mu    sync.Mutex
-	count int
+	mu      sync.Mutex
+	holders map[string]struct{}
 }
 
-func (m *obsMutex) Lock(ref int64, id string) {
+func (m *obsMutex) Lock(ref string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.count = m.count + 1
-	if m.count > 1 {
-		logrus.Errorf("AL PATCH: More than one Go routine in critical section (%d) for [%d] %s", m.count, ref, id)
+
+	if m.holders == nil {
+		m.holders = map[string]struct{}{}
+	}
+	if _, ok := m.holders[ref]; ok {
+		logrus.Errorf("AL PATCH: Lock already held by ref '%s'\n", ref)
+	}
+	m.holders[ref] = struct{}{}
+	if len(m.holders) > 1 {
+		logrus.Errorf("AL PATCH: Lock held by multiple refs: '%v'\n", strings.Join(m.holderList(), ", "))
 	}
 }
 
-func (m *obsMutex) Unlock(ref int64, id string) {
+func (m *obsMutex) holderList() []string {
+	arr := []string{}
+	for k := range m.holders {
+		arr = append(arr, k)
+	}
+	return arr
+}
+
+func (m *obsMutex) Unlock(ref string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.count = m.count - 1
-	if m.count > 1 {
-		logrus.Errorf("AL PATCH: one Go routine less in critical section (%d) for [%d] %s", m.count, ref, id)
-	}
+	delete(m.holders, ref)
 }
 
 type item struct {
