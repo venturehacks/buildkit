@@ -22,28 +22,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type modifiedMutex struct {
-	mu           sync.Mutex
-	lockHoldTime time.Time
-}
-
-func (m *modifiedMutex) Lock() {
-	m.mu.Lock()
-	m.lockHoldTime = time.Now()
-}
-
-func (m *modifiedMutex) Unlock() {
-	elapsed := time.Since(m.lockHoldTime)
-	if elapsed.Milliseconds() > 10 {
-		logrus.Infof("auth handler lock held for %s", elapsed)
-	}
-	m.mu.Unlock()
-}
-
 type authHandlerNS struct {
 	counter int64 // needs to be 64bit aligned for 32bit systems
 
-	mu       modifiedMutex
+	mu       sync.Mutex
 	hostsMu  sync.Mutex
 	handlers map[string]*authHandler
 	hosts    map[string][]docker.RegistryHost
