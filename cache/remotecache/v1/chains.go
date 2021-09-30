@@ -1,7 +1,6 @@
 package cacheimport
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +12,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var uglyGlobalMutex obsMutex
+type modifiedMutex struct {
+	mu           sync.Mutex
+	lockHoldTime time.Time
+}
+
+func (m *modifiedMutex) Lock() {
+	m.mu.Lock()
+	m.lockHoldTime = time.Now()
+}
+
+func (m *modifiedMutex) Unlock() {
+	elapsed := time.Since(m.lockHoldTime)
+	if elapsed.Milliseconds() > 10 {
+		logrus.Infof("Marshall lock held for %s", elapsed)
+	}
+	m.mu.Unlock()
+}
+
+var uglyGlobalMutex modifiedMutex
 
 func NewCacheChains() *CacheChains {
 	return &CacheChains{visited: map[interface{}]struct{}{}}
@@ -66,9 +83,9 @@ func (c *CacheChains) normalize() error {
 
 	// Trouble!
 	logrus.Infof("[global-normalize][%d] before", ref)
-	uglyGlobalMutex.Lock(fmt.Sprintf("normalize-%d", ref))
+	uglyGlobalMutex.Lock()
 	defer func() {
-		uglyGlobalMutex.Unlock(fmt.Sprintf("normalize-%d", ref))
+		uglyGlobalMutex.Unlock()
 		logrus.Infof("[global-normalize][%d] after", ref)
 	}()
 
