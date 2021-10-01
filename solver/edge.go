@@ -456,6 +456,7 @@ func (e *edge) processUpdate(upt pipe.Receiver) (depChanged bool) {
 				e.err = err
 			}
 			dep.err = err
+			return
 		}
 
 		state := upt.Status().Value.(*edgeState)
