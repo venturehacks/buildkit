@@ -4,6 +4,7 @@ import (
 	"context"
 
 	digest "github.com/opencontainers/go-digest"
+	"github.com/sirupsen/logrus"
 )
 
 type exporter struct {
@@ -134,9 +135,13 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		for _, dep := range deps {
 			recs, err := dep.CacheKey.Exporter.ExportTo(ctx, t, opt)
 			if err != nil {
+				logrus.Errorf("solver:exporter.ExportTo() Dependency.ExportTo() failed with error - ignoring: %v", err)
 				return nil, nil
 			}
 			for _, r := range recs {
+				if rec.CacheChains() != r.CacheChains() && r.CacheChains() != "nop" {
+					logrus.Errorf("solver:exporter.ExportTo() Dependency.ExportTo() returned Records from a different CacheChains: rec(original): %s, r(returned):%s", rec.CacheChains(), r.CacheChains())
+				}
 				srcs[i] = append(srcs[i], expr{r: r, selector: dep.Selector})
 			}
 		}
@@ -146,9 +151,13 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		for _, de := range e.edge.secondaryExporters {
 			recs, err := de.cacheKey.CacheKey.Exporter.ExportTo(ctx, t, opt)
 			if err != nil {
+				logrus.Errorf("solver:exporter.ExportTo() SecondaryExporter.ExportTo() failed with error - ignoring: %v", err)
 				return nil, nil
 			}
 			for _, r := range recs {
+				if rec.CacheChains() != r.CacheChains() && r.CacheChains() != "nop" {
+					logrus.Errorf("solver:exporter.ExportTo() SecondaryExporter.ExportTo() returned Records from a different CacheChains: rec(original): %s, r(returned):%s", rec.CacheChains(), r.CacheChains())
+				}
 				srcs[de.index] = append(srcs[de.index], expr{r: r, selector: de.cacheKey.Selector})
 			}
 		}
@@ -182,6 +191,16 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 
 	e.res = allRec
 
+	mixedCC := false
+	for _, v := range allRec {
+		if v.CacheChains() != rec.CacheChains() && v.CacheChains() != "nop" && rec.CacheChains() != "nop" && v.CacheChains() != "nop" {
+			mixedCC = true
+			break
+		}
+	}
+	if mixedCC {
+		logrus.Errorf("solver: exporter.ExportTo() About to return items from different CacheChains: rec(original): %s", rec.CacheChains())
+	}
 	return e.res, nil
 }
 

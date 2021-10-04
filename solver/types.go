@@ -115,6 +115,7 @@ type CacheExporterTarget interface {
 // CacheExporterRecord is a single object being exported
 type CacheExporterRecord interface {
 	AddResult(createdAt time.Time, result *Remote)
+	CacheChains() string
 	LinkFrom(src CacheExporterRecord, index int, selector string)
 }
 

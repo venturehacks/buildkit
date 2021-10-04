@@ -1,6 +1,7 @@
 package cacheimport
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ func (m *modifiedMutex) Unlock() {
 	m.mu.Unlock()
 }
 
-var uglyGlobalMutex modifiedMutex
+var uglyGlobalMutex sync.Mutex
 
 func NewCacheChains() *CacheChains {
 	return &CacheChains{visited: map[interface{}]struct{}{}}
@@ -41,6 +42,7 @@ type CacheChains struct {
 	visited map[interface{}]struct{}
 }
 
+// max: this is where items leak out of a given CacheChains
 func (c *CacheChains) Add(dgst digest.Digest) solver.CacheExporterRecord {
 	if strings.HasPrefix(dgst.String(), "random:") {
 		return &nopRecord{}
@@ -48,6 +50,10 @@ func (c *CacheChains) Add(dgst digest.Digest) solver.CacheExporterRecord {
 	it := &item{c: c, dgst: dgst, backlinks: map[*item]struct{}{}}
 	c.items = append(c.items, it)
 	return it
+}
+
+func (c *CacheChains) CacheChains() string {
+	return fmt.Sprintf("%p", c)
 }
 
 func (c *CacheChains) Visit(v interface{}) {
@@ -60,9 +66,10 @@ func (c *CacheChains) Visited(v interface{}) bool {
 }
 
 func (c *CacheChains) normalize() error {
-	ref := time.Now().UnixNano()
+	ref := fmt.Sprintf("%p-%d", c, time.Now().UnixNano())
 
 	st := &normalizeState{
+		c:     c,
 		added: map[*item]*item{},
 		links: map[*item]map[nlink]map[digest.Digest]struct{}{},
 		byKey: map[digest.Digest]*item{},
@@ -82,11 +89,11 @@ func (c *CacheChains) normalize() error {
 	c.items = validated
 
 	// Trouble!
-	logrus.Infof("[global-normalize][%d] before", ref)
+	logrus.Infof("cacheimport: CacheChains.normalize() ref:%s before", ref)
 	uglyGlobalMutex.Lock()
 	defer func() {
 		uglyGlobalMutex.Unlock()
-		logrus.Infof("[global-normalize][%d] after", ref)
+		logrus.Infof("cacheimport: CacheChains.normalize() ref:%s after", ref)
 	}()
 
 	for _, it := range c.items {
@@ -107,6 +114,7 @@ func (c *CacheChains) normalize() error {
 }
 
 func (c *CacheChains) Marshal() (*CacheConfig, DescriptorProvider, error) {
+	c.checkCacheChainsCoherence()
 	if err := c.normalize(); err != nil {
 		return nil, nil, err
 	}
@@ -129,6 +137,7 @@ func (c *CacheChains) Marshal() (*CacheConfig, DescriptorProvider, error) {
 	}
 	sortConfig(&cc)
 
+	logrus.Errorf("cacheimport: CacheChains.Marshal(): Result has %d layers and %d records", len(cc.Layers), len(cc.Records))
 	return &cc, st.descriptors, nil
 }
 
@@ -139,41 +148,6 @@ type DescriptorProviderPair struct {
 	Provider   content.Provider
 }
 
-type obsMutex struct {
-	mu      sync.Mutex
-	holders map[string]struct{}
-}
-
-func (m *obsMutex) Lock(ref string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.holders == nil {
-		m.holders = map[string]struct{}{}
-	}
-	if _, ok := m.holders[ref]; ok {
-		logrus.Errorf("AL PATCH: Lock already held by ref '%s'\n", ref)
-	}
-	m.holders[ref] = struct{}{}
-	if len(m.holders) > 1 {
-		logrus.Errorf("AL PATCH: Lock held by multiple refs: '%v'\n", strings.Join(m.holderList(), ", "))
-	}
-}
-
-func (m *obsMutex) holderList() []string {
-	arr := []string{}
-	for k := range m.holders {
-		arr = append(arr, k)
-	}
-	return arr
-}
-
-func (m *obsMutex) Unlock(ref string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.holders, ref)
-}
-
 type item struct {
 	c    *CacheChains
 	dgst digest.Digest
@@ -182,7 +156,7 @@ type item struct {
 	resultTime time.Time
 
 	links       []map[link]struct{}
-	linksMu     obsMutex
+	obsMu       obsMutex
 	backlinksMu sync.Mutex
 	backlinks   map[*item]struct{}
 	invalid     bool
@@ -212,6 +186,10 @@ func (c *item) removeLink(src *item) bool {
 	return found
 }
 
+func (c *item) CacheChains() string {
+	return fmt.Sprintf("%p", c.c)
+}
+
 func (c *item) AddResult(createdAt time.Time, result *solver.Remote) {
 	c.resultTime = createdAt
 	c.result = result
@@ -223,6 +201,9 @@ func (c *item) LinkFrom(rec solver.CacheExporterRecord, index int, selector stri
 		return
 	}
 
+	if c.CacheChains() != src.CacheChains() {
+		logrus.Errorf("item.LinkFrom() Linking item to a different CacheChains: digest: %s, item: %s, toBeLinkedFrom:%s", src.dgst.String(), c.CacheChains(), src.CacheChains())
+	}
 	for {
 		if index < len(c.links) {
 			break
@@ -284,6 +265,10 @@ func (c *nopRecord) AddResult(createdAt time.Time, result *solver.Remote) {
 }
 
 func (c *nopRecord) LinkFrom(rec solver.CacheExporterRecord, index int, selector string) {
+}
+
+func (c *nopRecord) CacheChains() string {
+	return "nop"
 }
 
 var _ solver.CacheExporterTarget = &CacheChains{}

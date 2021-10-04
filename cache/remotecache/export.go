@@ -68,6 +68,7 @@ type contentCacheExporter struct {
 
 func NewExporter(ingester content.Ingester, ref string, oci bool) Exporter {
 	cc := v1.NewCacheChains()
+	logrus.Infof("remotecache.NewExporter() new CacheChains %p for %s", cc, ref)
 	return &contentCacheExporter{CacheExporterTarget: cc, chains: cc, ingester: ingester, oci: oci, ref: ref}
 }
 
