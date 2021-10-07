@@ -11,7 +11,7 @@ type exporter struct {
 	records []*CacheRecord
 	record  *CacheRecord
 
-	res      []CacheExporterRecord
+	res      map[CacheExporterTarget][]CacheExporterRecord
 	edge     *edge // for secondaryExporters
 	override *bool
 }
@@ -66,8 +66,12 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		bkm = bk.(map[string]CacheExporterRecord)
 	}
 
+	if e.res == nil {
+		e.res = map[CacheExporterTarget][]CacheExporterRecord{}
+	}
+
 	if t.Visited(e) {
-		return e.res, nil
+		return e.res[t], nil
 	}
 	t.Visit(e)
 
@@ -180,9 +184,8 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		}
 	}
 
-	e.res = allRec
-
-	return e.res, nil
+	e.res[t] = allRec
+	return e.res[t], nil
 }
 
 func getBestResult(records []*CacheRecord) *CacheRecord {
