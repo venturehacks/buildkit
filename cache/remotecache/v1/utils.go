@@ -129,9 +129,11 @@ type normalizeState struct {
 	links map[*item]map[nlink]map[digest.Digest]struct{}
 	byKey map[digest.Digest]*item
 	next  int
+	c     *CacheChains
 }
 
 func (s *normalizeState) removeLoops() {
+	logrus.Infof("normalizeState.removeLoops(): begin")
 	roots := []digest.Digest{}
 	for dgst, it := range s.byKey {
 		if len(it.links) == 0 {
@@ -139,14 +141,23 @@ func (s *normalizeState) removeLoops() {
 		}
 	}
 
-	visited := map[digest.Digest]struct{}{}
+	logrus.Infof("normalizeState.removeLoops(): found %d root element for cc %s", len(roots), s.c.Self())
 
+	visited := map[digest.Digest]struct{}{}
+	calls := 0
 	for _, d := range roots {
-		s.checkLoops(d, visited)
+		s.checkLoops(d, visited, &calls)
 	}
+	logrus.Infof("normalizeState.removeLoops(): end with %d calls", calls)
 }
 
-func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]struct{}) {
+func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]struct{}, calls *int) {
+	(*calls)++
+	if *calls > 10000 {
+		// debug.PrintStack()
+		// don't corrupt the cache - panic instead!
+		panic(fmt.Errorf("made %d calls to checkLoops() - we got stuck!!!", *calls))
+	}
 	it, ok := s.byKey[d]
 	if !ok {
 		return
@@ -168,11 +179,11 @@ func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]s
 					continue
 				}
 				if !it2.removeLink(it) {
-					logrus.Warnf("failed to remove looping cache key %s %s", d, id)
+					logrus.Warnf("failed to remove looping cache key %s %s (it2.c: %s, it.c: %s)", d, id, it2.Self(), it.Self())
 				}
 				delete(links[l], id)
 			} else {
-				s.checkLoops(id, visited)
+				s.checkLoops(id, visited, calls)
 			}
 		}
 	}

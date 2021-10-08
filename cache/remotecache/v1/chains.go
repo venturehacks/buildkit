@@ -9,6 +9,7 @@ import (
 	"github.com/moby/buildkit/solver"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 func NewCacheChains() *CacheChains {
@@ -43,6 +44,7 @@ func (c *CacheChains) normalize() error {
 		added: map[*item]*item{},
 		links: map[*item]map[nlink]map[digest.Digest]struct{}{},
 		byKey: map[digest.Digest]*item{},
+		c:     c,
 	}
 
 	validated := make([]*item, 0, len(c.items))
@@ -54,6 +56,8 @@ func (c *CacheChains) normalize() error {
 	for _, it := range c.items {
 		if !it.invalid {
 			validated = append(validated, it)
+		} else {
+			logrus.Errorf("cacheimport: CacheChains.normalize() invalid item found, filtered out")
 		}
 	}
 	c.items = validated
@@ -76,9 +80,11 @@ func (c *CacheChains) normalize() error {
 }
 
 func (c *CacheChains) Marshal() (*CacheConfig, DescriptorProvider, error) {
+	c.checkCacheChainsCoherence()
 	if err := c.normalize(); err != nil {
 		return nil, nil, err
 	}
+	logrus.Infof("cacheimport: CacheChains.Marshal() normalization done")
 
 	st := &marshalState{
 		chainsByID:    map[string]int{},
@@ -97,6 +103,10 @@ func (c *CacheChains) Marshal() (*CacheConfig, DescriptorProvider, error) {
 		Records: st.records,
 	}
 	sortConfig(&cc)
+	logrus.Infof("cacheimport/CacheChains.Marshal(): Result has %d layers and %d records", len(cc.Layers), len(cc.Records))
+	for it, n := range st.recordsByItem {
+		logrus.Infof("cacheimport/CacheChains.Marshal(): * %s: %d", it.dgst.String(), n)
+	}
 
 	return &cc, st.descriptors, nil
 }
@@ -156,6 +166,9 @@ func (c *item) LinkFrom(rec solver.CacheExporterRecord, index int, selector stri
 		return
 	}
 
+	if c.Self() != src.Self() {
+		logrus.Errorf("item.LinkFrom() Linking item to a different CacheChains: digest: %s, item: %s, toBeLinkedFrom:%s", src.dgst.String(), c.Self(), src.Self())
+	}
 	for {
 		if index < len(c.links) {
 			break

@@ -10,8 +10,8 @@ type exporter struct {
 	k       *CacheKey
 	records []*CacheRecord
 	record  *CacheRecord
-
-	res      map[CacheExporterTarget][]CacheExporterRecord
+	//	resMu    sync.Mutex
+	//res      map[CacheExporterTarget][]CacheExporterRecord
 	edge     *edge // for secondaryExporters
 	override *bool
 }
@@ -56,6 +56,10 @@ type backlinkT struct{}
 
 var backlinkKey = backlinkT{}
 
+type resT struct{}
+
+var resKey = resT{}
+
 func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt CacheExportOpt) ([]CacheExporterRecord, error) {
 	var bkm map[string]CacheExporterRecord
 
@@ -66,12 +70,19 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		bkm = bk.(map[string]CacheExporterRecord)
 	}
 
-	if e.res == nil {
-		e.res = map[CacheExporterTarget][]CacheExporterRecord{}
+	var resm map[CacheExporterTarget][]CacheExporterRecord
+
+	if res := ctx.Value(resKey); res == nil {
+		resm = map[CacheExporterTarget][]CacheExporterRecord{}
+		ctx = context.WithValue(ctx, resKey, resm)
+	} else {
+		resm = res.(map[CacheExporterTarget][]CacheExporterRecord)
 	}
 
 	if t.Visited(e) {
-		return e.res[t], nil
+		//e.resMu.Lock()
+		//defer e.resMu.Unlock()
+		return resm[t], nil
 	}
 	t.Visit(e)
 
@@ -184,8 +195,10 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		}
 	}
 
-	e.res[t] = allRec
-	return e.res[t], nil
+	//e.resMu.Lock()
+	resm[t] = allRec
+	//e.resMu.Unlock()
+	return resm[t], nil
 }
 
 func getBestResult(records []*CacheRecord) *CacheRecord {
