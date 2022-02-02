@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -60,16 +62,23 @@ const (
 
 type contentCacheExporter struct {
 	solver.CacheExporterTarget
-	chains   *v1.CacheChains
-	ingester content.Ingester
-	oci      bool
-	ref      string
+	chains             *v1.CacheChains
+	ingester           content.Ingester
+	oci                bool
+	ref                string
+	layerExportTimeout time.Duration
 }
 
 func NewExporter(ingester content.Ingester, ref string, oci bool) Exporter {
+	layerExportTimeoutMinute := os.Getenv("LAYER_EXPORT_TIMEOUT_MINUTE")
+	layerExportTimeoutMinuteInt, err := strconv.Atoi(layerExportTimeoutMinute)
+	if err != nil {
+		layerExportTimeoutMinuteInt = 5
+	}
+
 	cc := v1.NewCacheChains()
-	logrus.Infof("remotecache.NewExporter() new CacheChains %p for %s", cc, ref)
-	return &contentCacheExporter{CacheExporterTarget: cc, chains: cc, ingester: ingester, oci: oci, ref: ref}
+	logrus.Infof("remotecache.NewExporter() new CacheChains %p for %s (timeout: %d minutes)", cc, ref, layerExportTimeoutMinuteInt)
+	return &contentCacheExporter{CacheExporterTarget: cc, chains: cc, ingester: ingester, oci: oci, ref: ref, layerExportTimeout: time.Minute * time.Duration(layerExportTimeoutMinuteInt)}
 }
 
 func (ce *contentCacheExporter) Ref() string {
@@ -107,8 +116,18 @@ func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string
 			return nil, errors.Errorf("missing blob %s", l.Blob)
 		}
 		layerDone := oneOffProgress(ctx, fmt.Sprintf("writing layer %s", l.Blob))
-		if err := contentutil.Copy(ctx, ce.ingester, dgstPair.Provider, dgstPair.Descriptor, ce.ref, logs.LoggerFromContext(ctx)); err != nil {
-			return nil, layerDone(errors.Wrap(err, "error writing layer blob"))
+
+		err := func() error {
+			ctxWithTimeout, cancel := context.WithTimeout(ctx, ce.layerExportTimeout)
+			defer cancel()
+
+			if err := contentutil.Copy(ctxWithTimeout, ce.ingester, dgstPair.Provider, dgstPair.Descriptor, ce.ref, logs.LoggerFromContext(ctx)); err != nil {
+				return layerDone(errors.Wrap(err, "error writing layer blob"))
+			}
+			return nil
+		}()
+		if err != nil {
+			return nil, err
 		}
 		layerDone(nil)
 		mfst.Manifests = append(mfst.Manifests, dgstPair.Descriptor)

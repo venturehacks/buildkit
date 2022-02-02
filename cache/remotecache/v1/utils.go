@@ -145,6 +145,9 @@ func (s *normalizeState) removeLoops() {
 
 	for _, d := range roots {
 		s.checkLoops(d, visited, &i)
+		if i > 200000 && i%200000 == 0 {
+			logrus.Errorf("AL PATCH: might be stuck removing loops: %d checkLoops() calls", i)
+		}
 	}
 	logrus.Infof("normalizeState.removeLoops() done with %d checkLoops() calls", i)
 }
