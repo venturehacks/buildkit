@@ -87,7 +87,10 @@ func (ce *contentCacheExporter) Ref() string {
 
 func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string, error) {
 	res := make(map[string]string)
+	marshalingDone := oneOffProgress(ctx, fmt.Sprintf("marshalling %s", ce.ref))
 	config, descs, err := ce.chains.Marshal()
+	marshalingDone(err)
+
 	logrus.Infof("contentCacheExporter.Finalize() after Marshal: %s", ce.ref)
 	if err != nil {
 		return nil, err
