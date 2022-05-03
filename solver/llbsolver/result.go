@@ -94,8 +94,8 @@ func workerRefResolver(refCfg cacheconfig.RefConfig, all bool, g session.Group) 
 		start := time.Now()
 		l, err := ref.GetRemotes(ctx, true, refCfg, all, g)
 		elapsed := time.Since(start)
-		if elapsed.Milliseconds() > 1 {
-			logrus.Infof("workerRefResolver(): ref.GetRemotes() for %s took more than a millisecond: %s", res.ID(), elapsed)
+		if elapsed.Milliseconds() > 10 {
+			logrus.Infof("workerRefResolver(): ref.GetRemotes() for %s took more than 10 millisecond: %s", res.ID(), elapsed)
 		}
 		return l, err
 	}

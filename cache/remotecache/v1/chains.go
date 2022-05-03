@@ -102,7 +102,7 @@ func (c *CacheChains) Marshal(ctx context.Context) (*CacheConfig, DescriptorProv
 	}
 	sortConfig(&cc)
 
-	logrus.Errorf("cacheimport: CacheChains.Marshal(): Result has %d layers and %d records", len(cc.Layers), len(cc.Records))
+	logrus.Infof("cacheimport: CacheChains.Marshal(): Result has %d layers and %d records", len(cc.Layers), len(cc.Records))
 	return &cc, st.descriptors, nil
 }
 
