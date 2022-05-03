@@ -20,6 +20,7 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type ResolveCacheExporterFunc func(ctx context.Context, g session.Group, attrs map[string]string) (Exporter, error)
@@ -80,7 +81,11 @@ func (ce *contentCacheExporter) Config() Config {
 
 func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string, error) {
 	res := make(map[string]string)
+	marshalingDone := oneOffProgress(ctx, fmt.Sprintf("marshalling %s", ce.ref))
 	config, descs, err := ce.chains.Marshal(ctx)
+	marshalingDone(err)
+	logrus.Infof("contentCacheExporter.Finalize() after Marshal: %s", ce.ref)
+
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +112,7 @@ func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string
 		if !ok {
 			return nil, errors.Errorf("missing blob %s", l.Blob)
 		}
-		layerDone := oneOffProgress(ctx, fmt.Sprintf("writing layer %s", l.Blob))
+		layerDone := oneOffProgress(ctx, fmt.Sprintf("writing layer %s (size: %.1fMb)", l.Blob, float64(dgstPair.Descriptor.Size)/1024/1024))
 		if err := contentutil.Copy(ctx, ce.ingester, dgstPair.Provider, dgstPair.Descriptor, ce.ref, logs.LoggerFromContext(ctx)); err != nil {
 			return nil, layerDone(errors.Wrap(err, "error writing layer blob"))
 		}
@@ -127,7 +132,7 @@ func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string
 		Size:      int64(len(dt)),
 		MediaType: v1.CacheConfigMediaTypeV0,
 	}
-	configDone := oneOffProgress(ctx, fmt.Sprintf("writing config %s", dgst))
+	configDone := oneOffProgress(ctx, fmt.Sprintf("writing config %s (%d layers)", dgst, len(config.Layers)))
 	if err := content.WriteBlob(ctx, ce.ingester, dgst.String(), bytes.NewReader(dt), desc); err != nil {
 		return nil, configDone(errors.Wrap(err, "error writing config blob"))
 	}
@@ -157,4 +162,12 @@ func (ce *contentCacheExporter) Finalize(ctx context.Context) (map[string]string
 	res[ExporterResponseManifestDesc] = string(descJSON)
 	mfstDone(nil)
 	return res, nil
+}
+
+type ExporterRef interface {
+	Ref() string
+}
+
+func (ce *contentCacheExporter) Ref() string {
+	return fmt.Sprintf("remotecache:%s", ce.ref)
 }

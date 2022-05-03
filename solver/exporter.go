@@ -2,7 +2,10 @@ package solver
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/moby/buildkit/util/progress"
 	digest "github.com/opencontainers/go-digest"
 )
 
@@ -56,6 +59,22 @@ type contextT string
 var backlinkKey = contextT("solver/exporter/backlinks")
 var resKey = contextT("solver/exporter/res")
 
+func oneOffProgress(ctx context.Context, id string) func() {
+	pw, _, _ := progress.NewFromContext(ctx)
+	now := time.Now()
+	st := progress.Status{
+		Started: &now,
+	}
+	// pw.Write(id, st)
+	return func() {
+		// TODO: set error on status
+		now := time.Now()
+		st.Completed = &now
+		pw.Write(id, st)
+		pw.Close()
+	}
+}
+
 func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt CacheExportOpt) ([]CacheExporterRecord, error) {
 	var bkm map[string]CacheExporterRecord
 
@@ -78,6 +97,11 @@ func (e *exporter) ExportTo(ctx context.Context, t CacheExporterTarget, opt Cach
 		return res[e], nil
 	}
 	t.Visit(e)
+
+	visitDone := oneOffProgress(ctx, fmt.Sprintf("visiting %s (%d dependencies)", e.k.digest, len(e.k.Deps())))
+	defer func() {
+		visitDone()
+	}()
 
 	deps := e.k.Deps()
 

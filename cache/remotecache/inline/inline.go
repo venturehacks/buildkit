@@ -156,3 +156,7 @@ func layerToBlobs(idx int, layers []v1.CacheLayer) []digest.Digest {
 	}
 	return ds
 }
+
+func (ce *exporter) Ref() string {
+	return "inline"
+}

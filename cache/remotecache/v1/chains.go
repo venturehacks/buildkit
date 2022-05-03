@@ -2,6 +2,7 @@ package cacheimport
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/moby/buildkit/solver"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 func NewCacheChains() *CacheChains {
@@ -77,6 +79,7 @@ func (c *CacheChains) normalize() error {
 }
 
 func (c *CacheChains) Marshal(ctx context.Context) (*CacheConfig, DescriptorProvider, error) {
+	c.checkCacheChainsCoherence()
 	if err := c.normalize(); err != nil {
 		return nil, nil, err
 	}
@@ -99,6 +102,7 @@ func (c *CacheChains) Marshal(ctx context.Context) (*CacheConfig, DescriptorProv
 	}
 	sortConfig(&cc)
 
+	logrus.Errorf("cacheimport: CacheChains.Marshal(): Result has %d layers and %d records", len(cc.Layers), len(cc.Records))
 	return &cc, st.descriptors, nil
 }
 
@@ -158,6 +162,9 @@ func (c *item) LinkFrom(rec solver.CacheExporterRecord, index int, selector stri
 	}
 
 	for {
+		if c.CacheChains() != src.CacheChains() {
+			logrus.Errorf("item.LinkFrom() Linking item to a different CacheChains: digest: %s, item: %s, toBeLinkedFrom:%s", src.dgst.String(), c.CacheChains(), src.CacheChains())
+		}
 		if index < len(c.links) {
 			break
 		}
@@ -221,3 +228,42 @@ func (c *nopRecord) LinkFrom(rec solver.CacheExporterRecord, index int, selector
 }
 
 var _ solver.CacheExporterTarget = &CacheChains{}
+
+func (c *CacheChains) checkCacheChainsCoherence() {
+	mixedItems := 0
+	mixedBacklinks := 0
+	mixedLinks := 0
+	for _, v := range c.items {
+		if v.CacheChains() != c.CacheChains() {
+			mixedItems++
+			logrus.Errorf("checkCacheChainsCoherence(): original CacheChains: %s, foreign ITEM CacheChains: %s, Digest: %s", c.CacheChains(), v.CacheChains(), v.dgst.String())
+		}
+
+		for bl := range v.backlinks {
+			if bl.CacheChains() != c.CacheChains() {
+				mixedBacklinks++
+				logrus.Errorf("checkCacheChainsCoherence(): original CacheChains: %s, foreign BACKLINK CacheChains: %s, Digest: %s", c.CacheChains(), bl.CacheChains(), v.dgst.String())
+			}
+		}
+		for _, l := range v.links {
+			for k := range l {
+				if k.src.CacheChains() != c.CacheChains() {
+					mixedLinks++
+					logrus.Errorf("checkCacheChainsCoherence(): original CacheChains: %s, foreign LINK CacheChains: %s, Digest: %s", c.CacheChains(), k.src.CacheChains(), v.dgst.String())
+				}
+			}
+		}
+	}
+	if mixedItems > 0 || mixedBacklinks > 0 || mixedLinks > 0 {
+		logrus.Errorf("checkCacheChainsCoherence(): corrupted CacheChains: %s, ITEMS: %d, BACKLINKS: %d, LINKS: %d, TOTAL: %d", c.CacheChains(), mixedItems, mixedBacklinks, mixedLinks, len(c.items))
+	}
+	logrus.Infof("checkCacheChainsCoherence(): CacheChains %s contains %d items", c.CacheChains(), len(c.items))
+}
+
+func (c *CacheChains) CacheChains() string {
+	return fmt.Sprintf("%p", c)
+}
+
+func (c *item) CacheChains() string {
+	return fmt.Sprintf("%p", c.c)
+}

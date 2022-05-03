@@ -386,3 +386,7 @@ func oneOffProgress(ctx context.Context, id string) func(err error) error {
 		return err
 	}
 }
+
+func (ce *exporter) Ref() string {
+	return fmt.Sprintf("gha:%s", ce.indexKey())
+}

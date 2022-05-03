@@ -26,6 +26,7 @@ import (
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -266,6 +267,7 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 
 	g := session.NewGroup(j.SessionID)
 	var cacheExporterResponse map[string]string
+	exportFinalizationFailure := false
 	if e := exp.CacheExporter; e != nil {
 		if err := inBuilderContext(ctx, j, "exporting cache", "", func(ctx context.Context, _ session.Group) error {
 			prepareDone := oneOffProgress(ctx, "preparing build cache for export")
@@ -285,21 +287,39 @@ func (s *Solver) Solve(ctx context.Context, id string, sessionID string, req fro
 				compressionConfig := e.Config().Compression
 
 				// all keys have same export chain so exporting others is not needed
+				cacheKeyExportDone := oneOffProgress(ctx, fmt.Sprintf("exporting build cache layer %s (%s)", r.CacheKeys()[0].ID, r.CacheKeys()[0].Digest()))
 				_, err = r.CacheKeys()[0].Exporter.ExportTo(ctx, e, solver.CacheExportOpt{
 					ResolveRemotes: workerRefResolver(cacheconfig.RefConfig{Compression: compressionConfig}, false, g),
 					Mode:           exp.CacheExportMode,
 					Session:        g,
 					CompressionOpt: &compressionConfig,
 				})
+				cacheKeyExportDone(err)
 				return err
 			}); err != nil {
 				return prepareDone(err)
 			}
 			prepareDone(nil)
+			ref := "unknown"
+			if er, ok := e.(remotecache.ExporterRef); ok {
+				ref = er.Ref()
+			}
+			logrus.Infof("contentCacheExporter: Finalize() BEFORE session %s, job %s, group: %s, ref: %s", j.SessionID, id, session.AllSessionIDs(g), ref)
 			cacheExporterResponse, err = e.Finalize(ctx)
+			if err != nil {
+				exportFinalizationFailure = true
+				logrus.Infof("contentCacheExporter: Finalize() AFTER session %s, job %s, group: %s, ref: %s, error: %v", j.SessionID, id, session.AllSessionIDs(g), ref, err)
+			} else {
+				logrus.Infof("contentCacheExporter: Finalize() AFTER session %s, job %s, group: %s, ref: %s", j.SessionID, id, session.AllSessionIDs(g), ref)
+			}
 			return err
 		}); err != nil {
-			return nil, err
+			if exportFinalizationFailure {
+				logrus.Warningf("AL PATCH: export finalization failed - continuing anyway for session %s, job %s, group: %s: %v", j.SessionID, id, session.AllSessionIDs(g), err)
+				inBuilderContext(ctx, j, fmt.Sprintf("** AL PATCH: export finalization failed - continuing anyway: %v", err), "", func(_ context.Context, _ session.Group) error { return nil })
+			} else {
+				return nil, err
+			}
 		}
 	}
 

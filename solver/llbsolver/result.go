@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path"
+	"time"
 
 	cacheconfig "github.com/moby/buildkit/cache/config"
 	"github.com/moby/buildkit/cache/contenthash"
@@ -12,6 +13,7 @@ import (
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -89,6 +91,12 @@ func workerRefResolver(refCfg cacheconfig.RefConfig, all bool, g session.Group) 
 			return nil, errors.Errorf("invalid result: %T", res.Sys())
 		}
 
-		return ref.GetRemotes(ctx, true, refCfg, all, g)
+		start := time.Now()
+		l, err := ref.GetRemotes(ctx, true, refCfg, all, g)
+		elapsed := time.Since(start)
+		if elapsed.Milliseconds() > 1 {
+			logrus.Infof("workerRefResolver(): ref.GetRemotes() for %s took more than a millisecond: %s", res.ID(), elapsed)
+		}
+		return l, err
 	}
 }

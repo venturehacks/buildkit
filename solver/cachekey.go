@@ -2,8 +2,10 @@ package solver
 
 import (
 	"sync"
+	"time"
 
 	digest "github.com/opencontainers/go-digest"
+	"github.com/sirupsen/logrus"
 )
 
 // NewCacheKey creates a new cache key for a specific output index
@@ -36,7 +38,12 @@ type CacheKey struct {
 }
 
 func (ck *CacheKey) Deps() [][]CacheKeyWithSelector {
+	start := time.Now()
 	ck.mu.RLock()
+	elapsed := time.Since(start)
+	if elapsed.Milliseconds() > 1 {
+		logrus.Infof("(ck *CacheKey) Deps(): ck.mu.RLock() for %s took more than a millisecond: %s", ck.digest, elapsed)
+	}
 	defer ck.mu.RUnlock()
 	deps := make([][]CacheKeyWithSelector, len(ck.deps))
 	for i := range ck.deps {

@@ -138,12 +138,17 @@ func (s *normalizeState) removeLoops() {
 
 	visited := map[digest.Digest]struct{}{}
 
+	var i int64
 	for _, d := range roots {
-		s.checkLoops(d, visited)
+		s.checkLoops(d, visited, &i)
+		if i > 200000 && i%200000 == 0 {
+			logrus.Errorf("AL PATCH: might be stuck removing loops: %d checkLoops() calls", i)
+		}
 	}
 }
 
-func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]struct{}) {
+func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]struct{}, i *int64) {
+	(*i)++
 	it, ok := s.byKey[d]
 	if !ok {
 		return
@@ -169,7 +174,7 @@ func (s *normalizeState) checkLoops(d digest.Digest, visited map[digest.Digest]s
 				}
 				delete(links[l], id)
 			} else {
-				s.checkLoops(id, visited)
+				s.checkLoops(id, visited, i)
 			}
 		}
 	}
