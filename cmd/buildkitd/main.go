@@ -211,14 +211,14 @@ func main() {
 			return err
 		}
 
-		// logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-		logrus.SetFormatter(&logrus.JSONFormatter{
-			TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
-			FieldMap: logrus.FieldMap{
-				logrus.FieldKeyTime: "timestamp",
-				logrus.FieldKeyMsg:  "message",
-			},
-		})
+		logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
+		// logrus.SetFormatter(&logrus.JSONFormatter{
+		// 	TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
+		// 	FieldMap: logrus.FieldMap{
+		// 		logrus.FieldKeyTime: "timestamp",
+		// 		logrus.FieldKeyMsg:  "message",
+		// 	},
+		// })
 		if cfg.Debug {
 			logrus.SetLevel(logrus.DebugLevel)
 		}
