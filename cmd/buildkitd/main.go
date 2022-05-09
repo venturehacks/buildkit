@@ -353,7 +353,7 @@ func serveGRPC(cfg config.GRPCConfig, server *grpc.Server, errCh chan error) err
 		func(l net.Listener) {
 			eg.Go(func() error {
 				defer l.Close()
-				logrus.Infof("AL PATCH: running patched server v0.10.2-AL1-202205031403 on %s", l.Addr())
+				logrus.Infof("AL PATCH: running patched server v0.10.3-AL1-202205091102 on %s", l.Addr())
 				return server.Serve(l)
 			})
 		}(l)
