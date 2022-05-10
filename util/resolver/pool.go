@@ -134,8 +134,15 @@ func (r *Resolver) HostsFunc(host string) ([]docker.RegistryHost, error) {
 		v, err := r.handler.g.Do(context.TODO(), domain, func(ctx context.Context) (interface{}, error) {
 			// long lock not needed because flightcontrol.Do
 			r.handler.muHosts.Lock()
+
+			// Prefer locking the entire function inside of only the 'get'
+			// and 'set' operation. Ideally we would have a lock per 'domain'.
+			// In our case since we always use the same domain, the current implementation
+			// leads to unnecessary registry calls.
+			defer r.handler.muHosts.Unlock()
+
 			v, ok := r.handler.hosts[domain]
-			r.handler.muHosts.Unlock()
+			// r.handler.muHosts.Unlock()
 			if ok {
 				return v, nil
 			}
@@ -143,9 +150,9 @@ func (r *Resolver) HostsFunc(host string) ([]docker.RegistryHost, error) {
 			if err != nil {
 				return nil, err
 			}
-			r.handler.muHosts.Lock()
+			// r.handler.muHosts.Lock()
 			r.handler.hosts[domain] = res
-			r.handler.muHosts.Unlock()
+			// r.handler.muHosts.Unlock()
 			return res, nil
 		})
 		if err != nil || v == nil {
