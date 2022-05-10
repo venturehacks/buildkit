@@ -461,8 +461,8 @@ func (jl *Solver) Get(id string) (*Job, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		if elapsed.Milliseconds() > 1 {
-			logrus.Infof("jobsolver: get() for %s took more than a millisecond: %s", id, elapsed)
+		if elapsed.Milliseconds() > 100 {
+			logrus.Infof("jobsolver: get() for %s took more than 100 millisecond: %s", id, elapsed)
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
